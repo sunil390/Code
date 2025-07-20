@@ -1,81 +1,88 @@
 # --- ai_analysis.py ---
-# This module simulates an AI analysis of a mainframe job log.
-
 import re
+import psycopg2
+import google.generativeai as genai
+from sentence_transformers import SentenceTransformer
+from config import GEMINI_API_KEY
 
-def analyze_sysout(sysout_text: str) -> str:
+# --- Configuration ---
+DB_NAME = "amai_knowledge_db"
+DB_USER = "amai_user"
+DB_PASSWORD = "Amazone@9" # <-- SET YOUR DB PASSWORD
+DB_HOST = "192.168.2.226"
+DB_PORT = "5432"
+
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    llm = genai.GenerativeModel('gemini-2.0-flash')
+except Exception as e:
+    print(f"Error configuring Gemini: {e}")
+    llm = None
+
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def _extract_error_from_log(sysout_text: str) -> str | None:
+    if not llm: return "Gemini AI model not configured."
+    abend_match = re.search(r"(S[0-9A-F]{3}|U\d{4})", sysout_text)
+    if abend_match: return abend_match.group(1)
+    prompt = f"Find the most important error code or abend code from this mainframe log. Examples: S0C7, U4088, RC=08. If the job is successful (RC=0000), return 'RC=0000'. Return ONLY the code. LOG:\n{sysout_text[:4000]}"
+    try:
+        response = llm.generate_content(prompt)
+        error_code = response.text.strip()
+        print(f"LLM Triage identified: {error_code}")
+        return error_code
+    except Exception as e:
+        print(f"LLM Triage Error: {e}")
+        return None
+
+def _query_vector_db(query_text: str) -> str:
+    if query_text == "RC=0000": return "The job was successful (RC=0000). No knowledge base lookup needed."
+    query_embedding = embedding_model.encode(query_text)
+    try:
+        conn = psycopg2.connect(dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT)
+    except psycopg2.OperationalError as e:
+        return f"Database connection error: {e}"
+    results_text = ""
+    with conn.cursor() as cur:
+        # --- THIS IS THE FIX ---
+        cur.execute("SELECT title, resolution_steps FROM work_instructions ORDER BY embedding <=> %s LIMIT 2", (str(query_embedding.tolist()),))
+        results = cur.fetchall()
+    conn.close()
+    if not results: return "No specific work instructions were found for this error in the knowledge base."
+    results_text += "Relevant Work Instructions Found:\n"
+    for title, resolution_steps in results:
+        results_text += f"- Title: {title}\n  Resolution: {resolution_steps}\n"
+    print("Found relevant documents in Vector DB.")
+    return results_text
+
+def _synthesize_final_answer(sysout_text: str, kb_results: str) -> str:
+    if not llm: return "Gemini AI model not configured."
+    master_prompt = f"""You are an expert z/OS Mainframe Systems Programmer. Analyze the job log and internal documentation to provide a clear resolution plan.
+    Provide: Executive Summary, Root Cause Analysis, and a Step-by-Step Resolution Plan.
+    ---
+    BEGIN Original Job Log:
+    {sysout_text}
+    ---
+    END Original Job Log.
+    ---
+    BEGIN Internal Knowledge Base:
+    {kb_results}
+    ---
+    END Internal Knowledge Base.
     """
-    Analyzes a mainframe sysout log for key information and returns a
-    formatted summary.
+    try:
+        print("Synthesizing final answer with LLM...")
+        response = llm.generate_content(master_prompt)
+        return response.text
+    except Exception as e:
+        print(f"LLM Synthesis Error: {e}")
+        return "An error occurred while generating the final AI analysis."
 
-    Args:
-        sysout_text: The complete mainframe job log as a string.
-
-    Returns:
-        A formatted markdown string with the analysis.
-    """
-    if not sysout_text:
-        return "The provided sysout log is empty. No analysis can be performed."
-
-    # --- Data Extraction using Regular Expressions ---
-    
-    # Find the job name and return code (RC)
-    rc_match = re.search(r"\$HASP395\s+(\w+)\s+ENDED\s+-\s+RC=(\d+)", sysout_text)
-    job_name = rc_match.group(1) if rc_match else "Unknown"
-    return_code = rc_match.group(2) if rc_match else "Unknown"
-
-    # Find start and end times
-    start_time_match = re.search(r"IEF403I\s+\w+\s+-\s+STARTED\s+-\s+TIME=([\d.]+)", sysout_text)
-    end_time_match = re.search(r"IEF404I\s+\w+\s+-\s+ENDED\s+-\s+TIME=([\d.]+)", sysout_text)
-    start_time = start_time_match.group(1) if start_time_match else "N/A"
-    end_time = end_time_match.group(1) if end_time_match else "N/A"
-
-    # Check for ABENDs
-    abend_match = re.search(r"ABEND\s*=\s*(S[0-9A-F]{3})", sysout_text, re.IGNORECASE)
-    abend_code = abend_match.group(1) if abend_match else None
-
-    # --- AI Inference and Summary Generation ---
-
-    # Determine overall status
-    if abend_code:
-        status = "🔴 **Failed (Abend)**"
-        conclusion = f"The job failed with an ABEND code **{abend_code}**. This indicates a critical error that halted execution."
-    elif return_code == "0000":
-        status = "🟢 **Successful**"
-        conclusion = f"The job completed successfully with a return code of **{return_code}**, indicating no errors."
-    elif return_code != "Unknown":
-        status = f"🟡 **Warning/Check**"
-        conclusion = f"The job finished with a return code of **{return_code}**. While it did not abend, this code suggests potential warnings or issues that may need review."
-    else:
-        status = "⚪ **Unknown**"
-        conclusion = "The final status of the job could not be determined from the log."
-
-    # Build the response in Markdown format
-    analysis = f"""
-### 🧠 **AI Log Analysis**
-
-Here's my analysis of the job log for **{job_name}**:
-
-**1. Overall Status:** {status}
-   - **Conclusion:** {conclusion}
-
-**2. Execution Details:**
-   - **Start Time:** `{start_time}`
-   - **End Time:** `{end_time}`
-   - **Final Return Code (RC):** `{return_code}`
-
-**3. Key Observations:**
-"""
-    if not abend_code and return_code == "0000":
-        analysis += "- All steps appear to have executed normally.\n"
-        analysis += "- No error or warning messages were detected in the standard sections.\n"
-    
-    if abend_code:
-        analysis += f"- An **ABEND ({abend_code})** was detected. You should examine the steps immediately preceding the `IEF404I` (ENDED) message to find the cause of the failure.\n"
-    
-    if "ICH70001I" in sysout_text:
-        analysis += "- Security authorization via RACF was successful.\n"
-
-    analysis += "- Review the complete log for any application-specific messages or unexpected output."
-
-    return analysis
+def hybrid_analysis_pipeline(sysout_text: str) -> str:
+    if not sysout_text: return "Log is empty."
+    error_code = _extract_error_from_log(sysout_text)
+    if not error_code: return "Could not determine the primary error."
+    if error_code == "RC=0000": return "✅ **AI Analysis:** The job log indicates a successful completion (RC=0000)."
+    kb_results = _query_vector_db(error_code)
+    final_analysis = _synthesize_final_answer(sysout_text, kb_results)
+    return f"### 🧠 **AI-Powered Analysis for '{error_code}'**\n\n" + final_analysis

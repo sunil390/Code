@@ -1,0 +1,5 @@
+template_id,template_name,description
+14,siddcuf,"This will perform a SID check in the DCUF LPAR. This is a Healthcheck activity for the system ID."
+15,joboutput,"This is to download the job output sysout from the mainframe. Use this when you need to see the log for a specific job name. This is from the DCUF LPAR."
+16,sidcom2,"This template starts a critical system component on the mainframe, specifically for the COM2 region."
+17,siddcub,"This is a backup utility. It performs a full backup of the customer user database on the DCUB LPAR."

@@ -3,3 +3,7 @@ requests
 pyotp
 qrcode
 pillow
+psycopg2-binary
+sentence-transformers
+pandas
+google-generativeai

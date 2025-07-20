@@ -3,6 +3,8 @@ Client Secret : jU7pa9XMUzV6wuSEiAnhDt43lLYt9jk02gl4PV3VaeHoysEzOxhu90UOchoyD6cK
 
 curl -k -X POST -u "xVIT4wPcfR6StSEu1PfTeCinvfWzAOzditpg310U:jU7pa9XMUzV6wuSEiAnhDt43lLYt9jk02gl4PV3VaeHoysEzOxhu90UOchoyD6cKdsw6HPH4Pagpt6Dq86a4JHYPPQ2Rj32V1w8XGhEoprtHzQkq2RjQFiYIv1llnuuE" -d "grant_type=password&username=sunil390&password=Amazone@9" "https://awx.znext.com/api/v2/o/token/"
 
-AWX_API_TOKEN_WRITE = "5xwQwIO5m7EDTKEHqIenYgFsNTWrPv"  
-AWX_API_TOKEN_READ = "H28UFcTNzzamB9hRFYx39NdXQYfzmP"
+AWX_API_TOKEN_WRITE = "HB3rdJPHpxa8S9GQtNoX5YvZvgnH9J"  
+AWX_API_TOKEN_READ = "MSXewRQ0WJrSgkEaJVL6m4BBSLhTL9"
+
+AIzaSyBVmqH4qhzUQkKJ5kA1aa3SJE2KidCx5yI
 
